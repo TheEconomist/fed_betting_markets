@@ -1,4 +1,5 @@
 name: Run fed_betting_markets.R hourly
+
 on:
   schedule:
     - cron: "0 * * * *"   # top of every hour, UTC
@@ -8,84 +9,30 @@ on:
       - ".github/workflows/run-fed.yml"
       - "fed_betting_markets.R"
       - "renv.lock"
+
 permissions:
   contents: write   # let the workflow commit results back
+
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
+
       # Set up R + renv and restore packages (fast, cached)
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
+
       - name: Set up renv
         uses: r-lib/actions/setup-renv@v2
         with:
           cache-version: 1
+
       # Run the script
       - name: Execute R script
         run: Rscript fed_betting_markets.R
-
-      # Debug - List generated files
-      - name: Debug - List generated files
-        run: |
-          echo "Files in current directory:"
-          ls -la || echo "No files found"
-          echo "CSV files found:"
-          find . -name "*.csv" -type f || echo "No CSV files found"
-          echo "RDS files found:"
-          find . -name "*.rds" -type f || echo "No RDS files found"
-          echo "PDF files found:"
-          find . -name "*.pdf" -type f || echo "No PDF files found"
-
-      # Upload betting markets data to S3 (betting-fed folder)
-      - name: Upload betting markets data to S3
-        run: |
-          echo "Uploading betting markets data to S3 bucket: $CDN_S3_PROD"
-          
-          # Create betting-fed directory if it doesn't exist
-          mkdir -p betting-fed
-          
-          # Move generated files to betting-fed directory
-          # Adjust these patterns based on what your R script actually generates
-          if ls *.csv 1> /dev/null 2>&1; then
-            mv *.csv betting-fed/
-            echo "Moved CSV files to betting-fed/"
-          fi
-          
-          if ls *.rds 1> /dev/null 2>&1; then
-            mv *.rds betting-fed/
-            echo "Moved RDS files to betting-fed/"
-          fi
-          
-          if ls *.pdf 1> /dev/null 2>&1; then
-            mv *.pdf betting-fed/
-            echo "Moved PDF files to betting-fed/"
-          fi
-          
-          # Upload to S3
-          if [ -d "betting-fed" ] && [ "$(ls -A betting-fed)" ]; then
-            aws s3 sync ./betting-fed s3://$CDN_S3_PROD/betting-fed --delete --cache-control "public,max-age=300"
-            echo "Successfully uploaded betting markets data to S3"
-          else
-            echo "No files found to upload to S3"
-          fi
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: 'us-east-1'
-          CDN_S3_PROD: ${{ vars.CDN_S3_PROD }}
-
-      # Invalidate CloudFront Cache for betting markets
-      - name: Invalidate CloudFront Cache for betting markets
-        if: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID_PROD != '' }}
-        run: |
-          echo "Invalidating CloudFront cache for betting-fed..."
-          aws cloudfront create-invalidation --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID_PROD }} --paths "/betting-fed/*"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       # Commit and push changed outputs (CSV/PDF) if any
       - name: Commit results
@@ -93,17 +40,9 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # Add betting-fed directory files
-          git add betting-fed/ 2>/dev/null || echo "No betting-fed files to add"
-          
-          # Add any remaining files in root (in case some weren't moved)
           git add -A
-          
-          if git commit -m "Hourly update - betting markets data $(date '+%Y-%m-%d %H:%M:%S UTC')"; then
+          if git commit -m "Hourly update"; then
             git push
           else
             echo "No changes to commit."
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
